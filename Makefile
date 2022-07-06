@@ -1,4 +1,9 @@
-all:
+all: protocols client
+
+client:
+	${CC} -o client client.c xdg-shell-protocol.c -lwayland-client -lrt
+
+protocols:
 	wayland-scanner private-code \
 	  < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
 	  > xdg-shell-protocol.c
@@ -6,7 +11,7 @@ all:
 	  < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
 	  > xdg-shell-client-protocol.h
 
-all: client
+clean:
+	-rm client *.o *protocol.c *protocol.h
 
-client:
-	${CC} -o client client.c xdg-shell-protocol.c -lwayland-client -lrt
+.PHONY: all clean
