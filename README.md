@@ -1,1 +1,1 @@
-borrowed from https://wayland-book.com/xdg-shell-basics/example-code.html and [this gist] (https://gist.github.com/saivert/10138f74e0c9f67ce54a5cc6ceca8806/raw/9846c14a432dd718d2361ba9925207b17cfc205d/wayland-client-sample.c)
+borrowed from https://wayland-book.com/xdg-shell-basics/example-code.html and https://gist.github.com/saivert/10138f74e0c9f67ce54a5cc6ceca8806/raw/9846c14a432dd718d2361ba9925207b17cfc205d/wayland-client-sample.c)
