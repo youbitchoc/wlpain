@@ -274,7 +274,7 @@ wl_surface_frame_done(void *data, struct wl_callback *cb, uint32_t time)
 	cb = wl_surface_frame(state->wl_surface);
 	wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
 
-	/* Update scroll amount at 24 pixels per second */
+	/* Update scroll amount at 16 pixels per second */
 	if (state->last_frame != 0) {
 		int elapsed = time - state->last_frame;
 		state->offset += elapsed / 1000.0 * 16;
@@ -458,20 +458,21 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
 			a->x2 = client_state->pointer_x;
 			a->y2 = client_state->pointer_y;
 
-			fprintf(stderr, "%d,%d %p\n", a->x2, a->y2, a);
+			fprintf(stderr, "%d,%d - %d,%d %p\n", a->x1, a->y1, a->x2, a->y2, a);
 
 			struct wl_surface *surface = wl_compositor_create_surface(client_state->wl_compositor);
 			struct wl_region *region = wl_compositor_create_region(client_state->wl_compositor);
 
-			fprintf(stderr, "%d,%d - %d,%d %p\n", a->x1, a->y1, a->x2, a->y2, a);
-
-			wl_region_add(region, a->x1, a->y1, a->x2-a->x1, a->y2-a->y1);
-			wl_surface_set_opaque_region(client_state->wl_surface, region);
+			wl_region_add(region, a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
+			printf("%d, %d, %d, %d", a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
 			wl_surface_set_input_region(surface, region);
+			wl_region_destroy(region);
+			wl_surface_commit(surface);
 
 			struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(client_state->wl_subcompositor, surface, client_state->wl_surface);
 
 			wl_subsurface_place_above(subsurface, client_state->wl_surface);
+			wl_subsurface_set_sync(subsurface);
 			// if it isn't evident enough, I know almost nothing about pointers
 			*a = (struct area) { 0 };
 		}
@@ -624,9 +625,10 @@ main(int argc, char *argv[])
 
 	state.wl_surface = wl_compositor_create_surface(state.wl_compositor);
 
-	//struct wl_region *empty = wl_compositor_create_region(state.wl_compositor);
-	//wl_surface_set_input_region(state.wl_surface, empty);
-	//wl_region_destroy(empty);
+	struct wl_region *empty = wl_compositor_create_region(state.wl_compositor);
+	wl_region_add(empty, 0, 0, 100, 100);
+	wl_surface_set_input_region(state.wl_surface, empty);
+	wl_region_destroy(empty);
 	//wl_surface_set_opaque_region(state.wl_surface, state.wl_region);
 
 	state.xdg_surface = xdg_wm_base_get_xdg_surface(
