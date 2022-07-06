@@ -452,29 +452,28 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
 			fprintf(stderr, "%d %d %p\n", a->x1, a->y1, a);
 		} else {
 			// bottom-right
-			if (!(a->x1 || a->y1))
-				BARF("bad x1 y1");
+			if (a->x1 || a->y1) {
+				a->x2 = client_state->pointer_x;
+				a->y2 = client_state->pointer_y;
 
-			a->x2 = client_state->pointer_x;
-			a->y2 = client_state->pointer_y;
+				fprintf(stderr, "%d,%d - %d,%d %p\n", a->x1, a->y1, a->x2, a->y2, a);
 
-			fprintf(stderr, "%d,%d - %d,%d %p\n", a->x1, a->y1, a->x2, a->y2, a);
+				struct wl_surface *surface = wl_compositor_create_surface(client_state->wl_compositor);
+				struct wl_region *region = wl_compositor_create_region(client_state->wl_compositor);
 
-			struct wl_surface *surface = wl_compositor_create_surface(client_state->wl_compositor);
-			struct wl_region *region = wl_compositor_create_region(client_state->wl_compositor);
+				wl_region_add(region, a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
+				printf("%d, %d, %d, %d", a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
+				wl_surface_set_input_region(surface, region);
+				wl_region_destroy(region);
+				wl_surface_commit(surface);
 
-			wl_region_add(region, a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
-			printf("%d, %d, %d, %d", a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
-			wl_surface_set_input_region(surface, region);
-			wl_region_destroy(region);
-			wl_surface_commit(surface);
+				struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(client_state->wl_subcompositor, surface, client_state->wl_surface);
 
-			struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(client_state->wl_subcompositor, surface, client_state->wl_surface);
-
-			wl_subsurface_place_above(subsurface, client_state->wl_surface);
-			wl_subsurface_set_sync(subsurface);
-			// if it isn't evident enough, I know almost nothing about pointers
-			*a = (struct area) { 0 };
+				wl_subsurface_place_above(subsurface, client_state->wl_surface);
+				wl_subsurface_set_sync(subsurface);
+				// if it isn't evident enough, I know almost nothing about pointers
+				*a = (struct area) { 0 };
+			}
 		}
 	}
 
