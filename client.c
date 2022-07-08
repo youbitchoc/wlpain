@@ -124,7 +124,6 @@ struct client_state {
 	struct pointer_event pointer_event;
 	uint32_t pointer_x;
 	uint32_t pointer_y;
-	/* what */
 };
 
 /* taken from dwl */
@@ -192,13 +191,11 @@ draw_frame(struct client_state *state)
 					data[y * width + x] = 0xFF0000FF;*/
 			int dx = x - state->pointer_x;
 			int dy = y - state->pointer_y;
-			if (dx * dx + dy * dy < 256) {
+			if (dx * dx + dy * dy < 256)
 					data[y * width + x] = 0x000000;
-			} else
+			else
 				data[y * width + x] = (((x + offset) + (y + offset)) % 32 < 16) ?
-					0x00000000 : 0xFF000000;
-				
-			
+					0x00000000 : 0xFFFFFFFF;
 		}
 	}
 
@@ -592,45 +589,47 @@ static const struct wl_registry_listener wl_registry_listener = {
 	.global_remove = registry_global_remove,
 };
 
-static void
-makewindow(struct client_state *state, int x, int y, int width, int height)
+static struct client_state*
+makewindow(int x, int y, int width, int height)
 {
-	fprintf(stderr, "%p\n", state);
+	struct client_state *state = malloc(sizeof(struct client_state));
 	state->width = width;
 	state->height = height;
-	fprintf(stderr, "%p\n", state);
 	state->wl_display = wl_display_connect(NULL);
 	state->wl_registry = wl_display_get_registry(state->wl_display);
 	wl_registry_add_listener(state->wl_registry, &wl_registry_listener, state);
 	wl_display_roundtrip(state->wl_display);
 
 	state->wl_surface = wl_compositor_create_surface(state->wl_compositor);
+
 	struct wl_region *empty = wl_compositor_create_region(state->wl_compositor);
 	wl_region_add(empty, x, y, width, height);
 	wl_surface_set_input_region(state->wl_surface, empty);
 	wl_region_destroy(empty);
 
-	state->xdg_surface = xdg_wm_base_get_xdg_surface(state->xdg_wm_base, state->wl_surface);
+	state->xdg_surface = xdg_wm_base_get_xdg_surface(
+			state->xdg_wm_base, state->wl_surface);
 	xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, state);
 	state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface);
-	xdg_toplevel_add_listener(state->xdg_toplevel, &xdg_toplevel_listener, state);
+	xdg_toplevel_add_listener(state->xdg_toplevel,
+			&xdg_toplevel_listener, &state);
 	xdg_toplevel_set_title(state->xdg_toplevel, "Example client");
 	wl_surface_commit(state->wl_surface);
 
 	struct wl_callback *cb = wl_surface_frame(state->wl_surface);
 	wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
+	return state;
 }
 
 int
 main(int argc, char *argv[])
 {
-	struct client_state *state = malloc(sizeof(struct client_state));
-	makewindow(state, 0, 0, 100, 100);
+	fprintf(stderr, "cringe\n");
+	struct client_state *w = makewindow(0, 0, 100, 100);
 
-	struct client_state *substate = malloc(sizeof(struct client_state));
-	makewindow(substate, 200, 200, 100, 100);
+	struct client_state *s = makewindow(200, 200, 100, 100);
 
-	while (wl_display_dispatch(state->wl_display) && state->closed != true) {
+	while (wl_display_dispatch(w->wl_display) && !w->closed && wl_display_dispatch(s->wl_display)) {
 
 	}
 

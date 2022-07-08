@@ -11,6 +11,9 @@ protocols:
 	  < /usr/share/wayland-protocols/stable/xdg-shell/xdg-shell.xml \
 	  > xdg-shell-client-protocol.h
 
+run:
+	./client
+
 clean:
 	-rm client *.o *protocol.c *protocol.h
 
