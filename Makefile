@@ -1,7 +1,7 @@
 all: protocols client
 
 client:
-	${CC} -o client client.c xdg-shell-protocol.c -lwayland-client -lrt
+	${CC} -g -o client client.c xdg-shell-protocol.c -lwayland-client -lrt
 
 protocols:
 	wayland-scanner private-code \

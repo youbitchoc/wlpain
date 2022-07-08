@@ -97,7 +97,7 @@ struct pointer_event {
 // could definitely do this much better
 struct area {
 	uint32_t x1, y1, x2, y2;
-};
+} a;
 
 /* Wayland code */
 struct client_state {
@@ -125,7 +125,6 @@ struct client_state {
 	uint32_t pointer_x;
 	uint32_t pointer_y;
 	/* what */
-	struct area a;
 };
 
 /* taken from dwl */
@@ -444,35 +443,21 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
 		char *state = event->state == WL_POINTER_BUTTON_STATE_RELEASED ?
 				"released" : "pressed";
 		fprintf(stderr, "button %d %s in %p \n", event->button, state, &client_state->pointer_event.surface);
-		struct area *a = &client_state->a;
 		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
 			// upper-left corner of new region
-			a->x1 = client_state->pointer_x;
-			a->y1 = client_state->pointer_y;
-			fprintf(stderr, "%d %d %p\n", a->x1, a->y1, a);
+			a.x1 = client_state->pointer_x;
+			a.y1 = client_state->pointer_y;
+			fprintf(stderr, "%d,%d %p\n", a.x1, a.y1, &a);
 		} else {
 			// bottom-right
-			if (a->x1 || a->y1) {
-				a->x2 = client_state->pointer_x;
-				a->y2 = client_state->pointer_y;
+			if (a.x1 || a.y1) {
+				a.x2 = client_state->pointer_x;
+				a.y2 = client_state->pointer_y;
 
-				fprintf(stderr, "%d,%d - %d,%d %p\n", a->x1, a->y1, a->x2, a->y2, a);
+				fprintf(stderr, "%d,%d - %d,%d %p\n", a.x1, a.y1, a.x2, a.y2, &a);
 
-				struct wl_surface *surface = wl_compositor_create_surface(client_state->wl_compositor);
-				struct wl_region *region = wl_compositor_create_region(client_state->wl_compositor);
-
-				wl_region_add(region, a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
-				printf("%d, %d, %d, %d", a->x1, a->y1, a->x2-a->x1+100, a->y2-a->y1+100);
-				wl_surface_set_input_region(surface, region);
-				wl_region_destroy(region);
-				wl_surface_commit(surface);
-
-				struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(client_state->wl_subcompositor, surface, client_state->wl_surface);
-
-				wl_subsurface_place_above(subsurface, client_state->wl_surface);
-				wl_subsurface_set_sync(subsurface);
 				// if it isn't evident enough, I know almost nothing about pointers
-				*a = (struct area) { 0 };
+				a = (struct area) { 0 };
 			}
 		}
 	}
@@ -607,44 +592,46 @@ static const struct wl_registry_listener wl_registry_listener = {
 	.global_remove = registry_global_remove,
 };
 
+static void
+makewindow(struct client_state *state, int x, int y, int width, int height)
+{
+	fprintf(stderr, "%p\n", state);
+	state->width = width;
+	state->height = height;
+	fprintf(stderr, "%p\n", state);
+	state->wl_display = wl_display_connect(NULL);
+	state->wl_registry = wl_display_get_registry(state->wl_display);
+	wl_registry_add_listener(state->wl_registry, &wl_registry_listener, state);
+	wl_display_roundtrip(state->wl_display);
+
+	state->wl_surface = wl_compositor_create_surface(state->wl_compositor);
+	struct wl_region *empty = wl_compositor_create_region(state->wl_compositor);
+	wl_region_add(empty, x, y, width, height);
+	wl_surface_set_input_region(state->wl_surface, empty);
+	wl_region_destroy(empty);
+
+	state->xdg_surface = xdg_wm_base_get_xdg_surface(state->xdg_wm_base, state->wl_surface);
+	xdg_surface_add_listener(state->xdg_surface, &xdg_surface_listener, state);
+	state->xdg_toplevel = xdg_surface_get_toplevel(state->xdg_surface);
+	xdg_toplevel_add_listener(state->xdg_toplevel, &xdg_toplevel_listener, state);
+	xdg_toplevel_set_title(state->xdg_toplevel, "Example client");
+	wl_surface_commit(state->wl_surface);
+
+	struct wl_callback *cb = wl_surface_frame(state->wl_surface);
+	wl_callback_add_listener(cb, &wl_surface_frame_listener, state);
+}
+
 int
 main(int argc, char *argv[])
 {
-	struct client_state state = { 0 };
-	state.width = 640;
-	state.height = 480;
-	state.wl_display = wl_display_connect(NULL);
-	state.wl_registry = wl_display_get_registry(state.wl_display);
-	wl_registry_add_listener(state.wl_registry, &wl_registry_listener, &state);
-	wl_display_roundtrip(state.wl_display);
+	struct client_state *state = malloc(sizeof(struct client_state));
+	makewindow(state, 0, 0, 100, 100);
 
-	//cursor_surface = wl_compositor_create_surface(state.wl_compositor);
-	//wl_surface_commit(cursor_surface);
+	struct client_state *substate = malloc(sizeof(struct client_state));
+	makewindow(substate, 200, 200, 100, 100);
 
+	while (wl_display_dispatch(state->wl_display) && state->closed != true) {
 
-	state.wl_surface = wl_compositor_create_surface(state.wl_compositor);
-
-	struct wl_region *empty = wl_compositor_create_region(state.wl_compositor);
-	wl_region_add(empty, 0, 0, 100, 100);
-	wl_surface_set_input_region(state.wl_surface, empty);
-	wl_region_destroy(empty);
-	//wl_surface_set_opaque_region(state.wl_surface, state.wl_region);
-
-	state.xdg_surface = xdg_wm_base_get_xdg_surface(
-			state.xdg_wm_base, state.wl_surface);
-	xdg_surface_add_listener(state.xdg_surface, &xdg_surface_listener, &state);
-	state.xdg_toplevel = xdg_surface_get_toplevel(state.xdg_surface);
-	xdg_toplevel_add_listener(state.xdg_toplevel,
-			&xdg_toplevel_listener, &state);
-	xdg_toplevel_set_title(state.xdg_toplevel, "Example client");
-	wl_surface_commit(state.wl_surface);
-
-	struct wl_callback *cb = wl_surface_frame(state.wl_surface);
-	wl_callback_add_listener(cb, &wl_surface_frame_listener, &state);
-
-
-	while (wl_display_dispatch(state.wl_display) && state.closed != true) {
-		/* This space deliberately left blank */
 	}
 
 	return 0;
