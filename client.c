@@ -590,7 +590,7 @@ static const struct wl_registry_listener wl_registry_listener = {
 };
 
 static struct client_state*
-makewindow(int x, int y, int width, int height)
+make_window(int x, int y, int width, int height)
 {
 	struct client_state *state = malloc(sizeof(struct client_state));
 	state->width = width;
@@ -599,13 +599,21 @@ makewindow(int x, int y, int width, int height)
 	state->wl_registry = wl_display_get_registry(state->wl_display);
 	wl_registry_add_listener(state->wl_registry, &wl_registry_listener, state);
 	wl_display_roundtrip(state->wl_display);
-
 	state->wl_surface = wl_compositor_create_surface(state->wl_compositor);
 
+	/*
+	state->wl_region = wl_compositor_create_region(state->wl_compositor);
+	wl_region_add(state->wl_region, x, y, width, height);
+	wl_surface_set_input_region(state->wl_surface, state->wl_region);
+	*/
+
+	/*
 	struct wl_region *empty = wl_compositor_create_region(state->wl_compositor);
 	wl_region_add(empty, x, y, width, height);
 	wl_surface_set_input_region(state->wl_surface, empty);
 	wl_region_destroy(empty);
+	*/
+
 
 	state->xdg_surface = xdg_wm_base_get_xdg_surface(
 			state->xdg_wm_base, state->wl_surface);
@@ -621,15 +629,70 @@ makewindow(int x, int y, int width, int height)
 	return state;
 }
 
+static struct wl_subsurface *
+make_input_subsurface(struct client_state *state, int x, int y, int width, int height)
+{
+	struct wl_region *region = wl_compositor_create_region(state->wl_compositor);
+	wl_region_add(region, 0, 0, width, height);
+	struct wl_surface *surface = wl_compositor_create_surface(state->wl_compositor);
+	wl_surface_set_input_region(surface, region);
+	wl_region_destroy(region);
+
+	int stride = width * 4;
+	int size = stride * height;
+
+	int fd = allocate_shm_file(size);
+	if (fd == -1) {
+		return NULL;
+	}
+
+	uint32_t *data = mmap(NULL, size,
+			PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+	if (data == MAP_FAILED) {
+		close(fd);
+		return NULL;
+	}
+
+	struct wl_shm_pool *pool = wl_shm_create_pool(state->wl_shm, fd, size);
+	struct wl_buffer *buffer = wl_shm_pool_create_buffer(pool, 0,
+			width, height, stride, WL_SHM_FORMAT_ARGB8888);
+	wl_shm_pool_destroy(pool);
+	close(fd);
+	
+	// comment out for loop to make transparent
+	for (int y = 0; y < height; ++y) {
+		for (int x = 0; x < width; ++x) {
+			data[y * width + x] = 0xFFFFFFFF;
+		}
+	}
+	// TODO: find some way to avoid mapping
+
+	munmap(data, size);
+	wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
+
+	wl_surface_attach(surface, buffer, 0, 0);
+	wl_surface_commit(surface);
+
+	struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(state->wl_subcompositor, surface, state->wl_surface);
+	wl_subsurface_set_position(subsurface, x, y);
+	wl_subsurface_set_sync(subsurface);
+	wl_subsurface_place_above(subsurface, state->wl_surface);
+
+	return subsurface;
+}
+
+
+
 int
 main(int argc, char *argv[])
 {
-	fprintf(stderr, "cringe\n");
-	struct client_state *w = makewindow(0, 0, 100, 100);
+	struct client_state *w = make_window(0, 0, 100, 100);
+	struct wl_subsurface *sub1 = make_input_subsurface(w, 200, 100, 100, 100);
+	struct wl_subsurface *sub2 = make_input_subsurface(w, 100, 300, 100, 100);
+	//struct client_state *s = make_window(200, 200, 100, 100);
 
-	struct client_state *s = makewindow(200, 200, 100, 100);
 
-	while (wl_display_dispatch(w->wl_display) && !w->closed && wl_display_dispatch(s->wl_display)) {
+	while (wl_display_dispatch(w->wl_display) && !w->closed /*&& wl_display_dispatch(s->wl_display)*/) {
 
 	}
 
