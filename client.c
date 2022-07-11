@@ -37,17 +37,17 @@ randname(char *buf)
 static int
 create_shm_file(void)
 {
-	int retries = 100;
-	do {
+	for (int i = 0; i < 100; i++) {
 		char name[] = "/wl_shm-XXXXXX";
 		randname(name + sizeof(name) - 7);
-		--retries;
 		int fd = shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
 		if (fd >= 0) {
 			shm_unlink(name);
 			return fd;
 		}
-	} while (retries > 0 && errno == EEXIST);
+		if (errno == EEXIST)
+			break;
+	}
 	return -1;
 }
 
@@ -94,11 +94,6 @@ struct pointer_event {
 	uint32_t axis_source;
 };
 
-// could definitely do this much better
-struct area {
-	uint32_t x1, y1, x2, y2;
-} a;
-
 /* Wayland code */
 struct client_state {
 	/* Globals */
@@ -125,26 +120,6 @@ struct client_state {
 	uint32_t pointer_x;
 	uint32_t pointer_y;
 };
-
-/* taken from dwl */
-typedef union {
-        int i;
-        unsigned int ui; 
-        float f;
-        const void *v;
-} Arg;
-
-/* spawns commands, taken from dwl */
-void
-spawn(const Arg *arg)
-{
-        if (fork() == 0) {
-                dup2(STDERR_FILENO, STDOUT_FILENO);
-                setsid();
-                execvp(((char **)arg->v)[0], (char **)arg->v);
-                BARF("execvp %s failed:", ((char **)arg->v)[0]);
-        }
-}
 
 static void
 wl_buffer_release(void *data, struct wl_buffer *wl_buffer)
@@ -189,13 +164,14 @@ draw_frame(struct client_state *state)
 			/*if (x > MAX(0,state->pointer_x-10) && x < state->pointer_x+10 &&
 				 y > MAX(0, state->pointer_y-10) && y < state->pointer_y+10) {
 					data[y * width + x] = 0xFF0000FF;*/
-			int dx = x - state->pointer_x;
-			int dy = y - state->pointer_y;
-			if (dx * dx + dy * dy < 256)
-					data[y * width + x] = 0x000000;
-			else
-				data[y * width + x] = (((x + offset) + (y + offset)) % 32 < 16) ?
+			data[y * width + x] = (((x + offset) + (y + offset)) % 32 < 16) ?
 					0x00000000 : 0xFFFFFFFF;
+			if (state->wl_pointer) {
+				int dx = x - state->pointer_x;
+				int dy = y - state->pointer_y;
+				if (dx * dx + dy * dy < 256)
+						data[y * width + x] = 0x000000;
+			}
 		}
 	}
 
@@ -303,7 +279,7 @@ wl_pointer_enter(void *data, struct wl_pointer *wl_pointer,
 	client_state->pointer_event.serial = serial;
 	client_state->pointer_event.surface = surface;
 	client_state->pointer_event.surface_x = surface_x,
-			client_state->pointer_event.surface_y = surface_y;
+	client_state->pointer_event.surface_y = surface_y;
 			
 
 	// Set our pointer	
@@ -440,23 +416,6 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
 		char *state = event->state == WL_POINTER_BUTTON_STATE_RELEASED ?
 				"released" : "pressed";
 		fprintf(stderr, "button %d %s in %p \n", event->button, state, &client_state->pointer_event.surface);
-		if (event->state == WL_POINTER_BUTTON_STATE_PRESSED) {
-			// upper-left corner of new region
-			a.x1 = client_state->pointer_x;
-			a.y1 = client_state->pointer_y;
-			fprintf(stderr, "%d,%d %p\n", a.x1, a.y1, &a);
-		} else {
-			// bottom-right
-			if (a.x1 || a.y1) {
-				a.x2 = client_state->pointer_x;
-				a.y2 = client_state->pointer_y;
-
-				fprintf(stderr, "%d,%d - %d,%d %p\n", a.x1, a.y1, a.x2, a.y2, &a);
-
-				// if it isn't evident enough, I know almost nothing about pointers
-				a = (struct area) { 0 };
-			}
-		}
 	}
 
 	if (event->event_mask & POINTER_EVENT_MOTION) {
@@ -507,7 +466,7 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
 	}
 
 	fprintf(stderr, "\n"); */
-	memset(event, 0, sizeof(*event));
+	//memset(event, 0, sizeof(*event));
 }
 
 static const struct wl_pointer_listener wl_pointer_listener = {
@@ -529,11 +488,11 @@ wl_seat_capabilities(void *data, struct wl_seat *wl_seat, uint32_t capabilities)
 
 	bool have_pointer = capabilities & WL_SEAT_CAPABILITY_POINTER;
 
-	if (have_pointer && state->wl_pointer == NULL) {
+	if (have_pointer && !state->wl_pointer) {
 		state->wl_pointer = wl_seat_get_pointer(state->wl_seat);
 		wl_pointer_add_listener(state->wl_pointer,
 				&wl_pointer_listener, state);
-	} else if (!have_pointer && state->wl_pointer != NULL) {
+	} else if (!have_pointer && state->wl_pointer) {
 		wl_pointer_release(state->wl_pointer);
 		state->wl_pointer = NULL;
 	}
@@ -629,7 +588,7 @@ make_window(int x, int y, int width, int height)
 	return state;
 }
 
-static struct wl_subsurface *
+static struct wl_surface *
 make_input_subsurface(struct client_state *state, int x, int y, int width, int height)
 {
 	struct wl_region *region = wl_compositor_create_region(state->wl_compositor);
@@ -668,17 +627,19 @@ make_input_subsurface(struct client_state *state, int x, int y, int width, int h
 	// TODO: find some way to avoid mapping
 
 	munmap(data, size);
-	wl_buffer_add_listener(buffer, &wl_buffer_listener, NULL);
 
 	wl_surface_attach(surface, buffer, 0, 0);
 	wl_surface_commit(surface);
 
+	wl_buffer_destroy(buffer);
+	fprintf(stderr, "surface: %p\n", surface);
+
 	struct wl_subsurface *subsurface = wl_subcompositor_get_subsurface(state->wl_subcompositor, surface, state->wl_surface);
 	wl_subsurface_set_position(subsurface, x, y);
-	wl_subsurface_set_sync(subsurface);
 	wl_subsurface_place_above(subsurface, state->wl_surface);
+	fprintf(stderr, "subsurface: %p\n", subsurface);
 
-	return subsurface;
+	return surface;
 }
 
 
@@ -686,14 +647,22 @@ make_input_subsurface(struct client_state *state, int x, int y, int width, int h
 int
 main(int argc, char *argv[])
 {
-	struct client_state *w = make_window(0, 0, 100, 100);
-	struct wl_subsurface *sub1 = make_input_subsurface(w, 200, 100, 100, 100);
-	struct wl_subsurface *sub2 = make_input_subsurface(w, 100, 300, 100, 100);
+	struct client_state *w = make_window(0, 0, 400, 400);
+	struct wl_surface *sub1 = make_input_subsurface(w, 200, 100, 100, 100);
+	struct wl_surface *sub2 = make_input_subsurface(w, 100, 300, 200, 100);
+	struct wl_surface *sub3 = make_input_subsurface(w, 100, 200, 100, 200);
 	//struct client_state *s = make_window(200, 200, 100, 100);
+	wl_surface_offset(sub3, 150, 150);
+	//wl_surface_set_buffer_scale(sub3, 2);
+	wl_surface_commit(sub3);
 
+	struct timespec ts;
 
 	while (wl_display_dispatch(w->wl_display) && !w->closed /*&& wl_display_dispatch(s->wl_display)*/) {
-
+		clock_gettime(CLOCK_REALTIME, &ts);
+		if (ts.tv_sec % 20 == 0) {
+		}
+		//fprintf(stderr, "%p | %d\n", w->pointer_event.surface, w->pointer_event.button);
 	}
 
 	return 0;
